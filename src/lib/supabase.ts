@@ -12,11 +12,28 @@ export async function getProfile() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
 
-    const { data, error } = await supabase
+    // First try to get the profile
+    let { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', user.id)
       .single();
+
+    // If profile doesn't exist, create it
+    if (error?.code === 'PGRST116' || !data) {
+      const { data: newProfile, error: insertError } = await supabase
+        .from('profiles')
+        .insert([{ id: user.id, balance: 1000 }])
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('Error creating profile:', insertError);
+        return null;
+      }
+
+      return newProfile;
+    }
 
     if (error) {
       console.error('Error fetching profile:', error);
@@ -168,4 +185,20 @@ export async function placeSportsBet(bet: {
     type: 'bet_placed',
     betType: bet.betType
   });
+}
+
+export async function createTransaction(amount: number, gameType: string, details: any = {}) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { error } = await supabase
+    .from('transactions')
+    .insert({
+      user_id: user.id,
+      amount,
+      game_type: gameType,
+      details
+    });
+
+  if (error) throw error;
 }
