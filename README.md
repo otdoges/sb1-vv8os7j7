@@ -1,31 +1,68 @@
-Welcome to Fakebet, the ultimate destination for online gambling and entertainment. We provide a secure, engaging, and user-friendly platform for players to enjoy a wide variety of games, including slots, poker, blackjack, and more. Whether you're here to play casually or compete for big wins, our platform has something for everyone.
+# Gambling Simulator
 
-Features
+A gambling simulation app built with React, TypeScript, and Supabase.
 
-Wide Game Selection: From classic casino games to modern variations, there's a game for every player.
+## Getting Started
 
-Secure Transactions: All deposits and withdrawals are encrypted to ensure your financial information remains safe.
+### Prerequisites
 
-Fast Payouts: Experience quick and hassle-free withdrawals.
+- Node.js (v18 or higher)
+- npm or yarn
+- A Supabase account and project
 
-Mobile  Friendly: Play anywhere, anytime with our responsive design and mobile app.
+### Environment Setup
 
-Promotions & Bonuses: Enjoy generous sign-up bonuses, daily rewards, and special event promotions.
+1. Create a new Supabase project at [https://supabase.com](https://supabase.com)
 
-24/7 Support: Our support team is available around the clock to assist you.
+2. Copy `.env.example` to `.env`:
+   ```bash
+   cp .env.example .env
+   ```
 
-How to run 
+3. Update `.env` with your Supabase project credentials:
+   - `VITE_SUPABASE_URL`: Your Supabase project URL
+   - `VITE_SUPABASE_ANON_KEY`: Your Supabase project anon/public key
 
-  First install the github repo with either git clone https://github.com/otdoges/Fakebet.git or download the zip 
+   You can find these values in your Supabase project dashboard under Settings > API.
 
-  2nd make sure you have node.js installed (node -v) and npm (npm -v) 
+### Installation
 
-  3rd go to where the project is on your computer and do npm i or npm install
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-  4th do npm run dev 
+2. Start the development server:
+   ```bash
+   npm run dev
+   ```
 
+## Security Notes
 
+- Never commit the `.env` file to version control
+- The `.env.example` file serves as a template and should not contain real credentials
+- The Supabase anon key is safe to expose in client-side code as it has limited permissions
+- Row Level Security (RLS) policies in Supabase protect your data even if credentials are exposed
 
-REPORT ANY BUGS FOUND 
+## Database Setup
 
-(this shits ai generated Im way to lazy to acutally type one)
+The database schema and security policies are managed through Supabase migrations. To set up your database:
+
+1. Install Supabase CLI
+2. Link your project
+3. Apply migrations:
+   ```bash
+   supabase db push
+   ```
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
