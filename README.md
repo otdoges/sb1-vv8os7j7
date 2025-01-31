@@ -15,10 +15,15 @@ Promotions & Bonuses: Enjoy generous sign-up bonuses, daily rewards, and special
 24/7 Support: Our support team is available around the clock to assist you.
 
 How to run 
-First install the github repo with either git clone https://github.com/otdoges/Fakebet.git or download the zip 
-2nd make sure you have node.js installed (node -v) and npm (npm -v) 
-3rd go to where the project is on your computer and do npm i or npm install
-4th do npm run dev 
+
+  First install the github repo with either git clone https://github.com/otdoges/Fakebet.git or download the zip 
+
+  2nd make sure you have node.js installed (node -v) and npm (npm -v) 
+
+  3rd go to where the project is on your computer and do npm i or npm install
+
+  4th do npm run dev 
+
 
 
 REPORT ANY BUGS FOUND 
