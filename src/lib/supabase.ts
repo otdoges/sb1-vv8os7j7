@@ -1,19 +1,64 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './database.types';
 
+// Validate environment variables
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-const supabase = createClient<Database>(supabaseUrl, supabaseKey);
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error('Missing Supabase environment variables. Check .env file.');
+}
+
+// Create a single instance of the Supabase client
+export const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true
+  },
+  db: {
+    schema: 'public'
+  }
+});
+
+// Rate limiting for login attempts
+const LOGIN_ATTEMPTS_LIMIT = 5;
+const LOGIN_TIMEOUT_MINUTES = 15;
+const LOGIN_ATTEMPTS: Record<string, { count: number; timestamp: number }> = {};
+
+// Helper function to check rate limiting
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const userAttempts = LOGIN_ATTEMPTS[ip];
+
+  if (!userAttempts) {
+    LOGIN_ATTEMPTS[ip] = { count: 1, timestamp: now };
+    return true;
+  }
+
+  const timeDiff = (now - userAttempts.timestamp) / (1000 * 60); // Convert to minutes
+  if (timeDiff > LOGIN_TIMEOUT_MINUTES) {
+    LOGIN_ATTEMPTS[ip] = { count: 1, timestamp: now };
+    return true;
+  }
+
+  if (userAttempts.count >= LOGIN_ATTEMPTS_LIMIT) {
+    return false;
+  }
+
+  userAttempts.count += 1;
+  return true;
+}
 
 async function getClientIP(): Promise<string> {
   try {
     const response = await fetch('https://api.ipify.org?format=json');
+    if (!response.ok) throw new Error('Failed to fetch IP');
     const data = await response.json();
     return data.ip;
   } catch (error) {
     console.error('Error getting IP:', error);
-    return '';
+    return 'unknown';
   }
 }
 
@@ -34,32 +79,28 @@ async function recordLoginAttempt(userId: string, ip: string, success: boolean) 
 
 async function checkSuspiciousActivity(ip: string): Promise<boolean> {
   try {
-    // Get recent failed attempts from this IP
     const { data: recentFailures } = await supabase
       .from('login_history')
       .select('*')
       .eq('ip_address', ip)
       .eq('success', false)
-      .gte('timestamp', new Date(Date.now() - 15 * 60 * 1000).toISOString()) // Last 15 minutes
+      .gte('timestamp', new Date(Date.now() - LOGIN_TIMEOUT_MINUTES * 60 * 1000).toISOString())
       .order('timestamp', { ascending: false });
 
-    // If there are more than 5 failed attempts in the last 15 minutes
-    if (recentFailures && recentFailures.length >= 5) {
+    if (recentFailures && recentFailures.length >= LOGIN_ATTEMPTS_LIMIT) {
       return true;
     }
 
-    // Check if this IP has recently logged in to different accounts
     const { data: recentLogins } = await supabase
       .from('login_history')
       .select('user_id')
       .eq('ip_address', ip)
       .eq('success', true)
-      .gte('timestamp', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()) // Last 24 hours
+      .gte('timestamp', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
       .order('timestamp', { ascending: false });
 
     if (recentLogins) {
       const uniqueUsers = new Set(recentLogins.map(login => login.user_id));
-      // If this IP has logged into more than 3 different accounts in 24 hours
       if (uniqueUsers.size > 3) {
         return true;
       }
@@ -72,14 +113,17 @@ async function checkSuspiciousActivity(ip: string): Promise<boolean> {
   }
 }
 
-async function signInWithPassword(email: string, password: string) {
+export async function signInWithPassword(email: string, password: string) {
   try {
     const ip = await getClientIP();
     
-    // First check if this IP has suspicious activity
+    if (!checkRateLimit(ip)) {
+      throw new Error('Too many login attempts. Please try again later.');
+    }
+
     const isSuspicious = await checkSuspiciousActivity(ip);
     if (isSuspicious) {
-      throw new Error('Too many login attempts. Please try again later.');
+      throw new Error('Suspicious activity detected. Please contact support.');
     }
 
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -99,11 +143,44 @@ async function signInWithPassword(email: string, password: string) {
   }
 }
 
-async function fetchLiveMatches() {
+export async function getProfile() {
   try {
-    const { data, error } = await supabase
-      .rpc('fetch_live_matches');
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
 
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        const { data: newProfile, error: insertError } = await supabase
+          .from('profiles')
+          .insert([{ id: user.id, balance: 1000 }])
+          .select()
+          .single();
+
+        if (insertError) throw insertError;
+        return newProfile;
+      }
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error in getProfile:', error);
+    return null;
+  }
+}
+
+export async function fetchLiveMatches() {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+
+    const { data, error } = await supabase.rpc('fetch_live_matches');
     if (error) throw error;
     return data || [];
   } catch (error) {
@@ -112,7 +189,7 @@ async function fetchLiveMatches() {
   }
 }
 
-async function placeSportsBet({
+export async function placeSportsBet({
   matchId,
   betAmount,
   odds,
@@ -135,6 +212,10 @@ async function placeSportsBet({
 }) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
+
+  // Validate bet amount
+  if (betAmount <= 0) throw new Error('Invalid bet amount');
+  if (odds <= 0) throw new Error('Invalid odds');
 
   // Start a transaction
   const { data: bet, error: betError } = await supabase
@@ -174,50 +255,4 @@ async function placeSportsBet({
   if (transactionError) throw transactionError;
 
   return bet;
-}
-
-async function getProfile() {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
-
-    let { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
-
-    if (error?.code === 'PGRST116' || !data) {
-      const { data: newProfile, error: insertError } = await supabase
-        .from('profiles')
-        .insert([{ id: user.id, balance: 1000 }])
-        .select()
-        .single();
-
-      if (insertError) {
-        console.error('Error creating profile:', insertError);
-        return null;
-      }
-
-      return newProfile;
-    }
-
-    if (error) {
-      console.error('Error fetching profile:', error);
-      return null;
-    }
-
-    return data;
-  } catch (error) {
-    console.error('Error in getProfile:', error);
-    return null;
-  }
-}
-
-export {
-  supabase,
-  signInWithPassword,
-  getProfile,
-  fetchLiveMatches,
-  placeSportsBet
 }

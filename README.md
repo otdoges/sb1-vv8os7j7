@@ -36,11 +36,7 @@ A gambling simulation app built with React, TypeScript, and Supabase.
    ```bash
    npm run dev
    ```
-3. When install package you get packages with vulnerabilites do
-     ```bash
-    npm audit fix --force
-   '''
-   
+
 ## Security Notes
 
 - Never commit the `.env` file to version control
