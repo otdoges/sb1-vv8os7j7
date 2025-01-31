@@ -37,7 +37,7 @@ A gambling simulation app built with React, TypeScript, and Supabase.
    npm run dev
    ```
 3. When install package you get packages with vulnerabilites do
-    '''bash
+     ```bash
     npm audit fix --force
    '''
    
