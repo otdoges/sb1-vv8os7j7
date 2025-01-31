@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Dices, Grid, Trophy, AlertCircle } from 'lucide-react';
-import { supabase, getProfile, createLocalBackup } from './lib/supabase';
+import { supabase } from './lib/supabase';
 import Plinko from './components/Plinko';
 import Mines from './components/Mines';
 import SportsBetting from './components/SportsBetting';
@@ -10,33 +10,34 @@ type GameType = 'plinko' | 'mines' | 'sports';
 
 function App() {
   const [session, setSession] = useState<any>(null);
-  const [profile, setProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const [activeGame, setActiveGame] = useState<GameType>('plinko');
 
   useEffect(() => {
+    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session) loadProfile();
+      setLoading(false);
     });
 
+    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session) loadProfile();
+      setLoading(false);
     });
-
-    // Set up automatic backups every 2 hours
-    const backupInterval = setInterval(createLocalBackup, 7200000);
 
     return () => {
       subscription.unsubscribe();
-      clearInterval(backupInterval);
     };
   }, []);
 
-  const loadProfile = async () => {
-    const profile = await getProfile();
-    setProfile(profile);
-  };
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
+      </div>
+    );
+  }
 
   if (!session) {
     return <Auth />;
@@ -72,7 +73,6 @@ function App() {
         </div>
       )}
 
-      {/* Rest of the App component remains the same */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-between items-center mb-8">
           <div className="flex gap-4">

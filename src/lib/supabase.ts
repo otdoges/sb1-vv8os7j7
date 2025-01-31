@@ -3,23 +3,190 @@ import type { Database } from './database.types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const sportsApiKey = '0df5c46113639dc2bc5faa0502eb99da';
 
-export const supabase = createClient<Database>(supabaseUrl, supabaseKey);
+const supabase = createClient<Database>(supabaseUrl, supabaseKey);
 
-export async function getProfile() {
+async function getClientIP(): Promise<string> {
+  try {
+    const response = await fetch('https://api.ipify.org?format=json');
+    const data = await response.json();
+    return data.ip;
+  } catch (error) {
+    console.error('Error getting IP:', error);
+    return '';
+  }
+}
+
+async function recordLoginAttempt(userId: string, ip: string, success: boolean) {
+  try {
+    await supabase
+      .from('login_history')
+      .insert({
+        user_id: userId,
+        ip_address: ip,
+        success,
+        timestamp: new Date().toISOString()
+      });
+  } catch (error) {
+    console.error('Error recording login attempt:', error);
+  }
+}
+
+async function checkSuspiciousActivity(ip: string): Promise<boolean> {
+  try {
+    // Get recent failed attempts from this IP
+    const { data: recentFailures } = await supabase
+      .from('login_history')
+      .select('*')
+      .eq('ip_address', ip)
+      .eq('success', false)
+      .gte('timestamp', new Date(Date.now() - 15 * 60 * 1000).toISOString()) // Last 15 minutes
+      .order('timestamp', { ascending: false });
+
+    // If there are more than 5 failed attempts in the last 15 minutes
+    if (recentFailures && recentFailures.length >= 5) {
+      return true;
+    }
+
+    // Check if this IP has recently logged in to different accounts
+    const { data: recentLogins } = await supabase
+      .from('login_history')
+      .select('user_id')
+      .eq('ip_address', ip)
+      .eq('success', true)
+      .gte('timestamp', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()) // Last 24 hours
+      .order('timestamp', { ascending: false });
+
+    if (recentLogins) {
+      const uniqueUsers = new Set(recentLogins.map(login => login.user_id));
+      // If this IP has logged into more than 3 different accounts in 24 hours
+      if (uniqueUsers.size > 3) {
+        return true;
+      }
+    }
+
+    return false;
+  } catch (error) {
+    console.error('Error checking suspicious activity:', error);
+    return false;
+  }
+}
+
+async function signInWithPassword(email: string, password: string) {
+  try {
+    const ip = await getClientIP();
+    
+    // First check if this IP has suspicious activity
+    const isSuspicious = await checkSuspiciousActivity(ip);
+    if (isSuspicious) {
+      throw new Error('Too many login attempts. Please try again later.');
+    }
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      await recordLoginAttempt(email, ip, false);
+      throw error;
+    }
+
+    await recordLoginAttempt(data.user.id, ip, true);
+    return data;
+  } catch (error) {
+    throw error;
+  }
+}
+
+async function fetchLiveMatches() {
+  try {
+    const { data, error } = await supabase
+      .rpc('fetch_live_matches');
+
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error fetching live matches:', error);
+    return [];
+  }
+}
+
+async function placeSportsBet({
+  matchId,
+  betAmount,
+  odds,
+  prediction,
+  teamA,
+  teamB,
+  sportType,
+  betType,
+  points
+}: {
+  matchId: string;
+  betAmount: number;
+  odds: number;
+  prediction: string;
+  teamA: string;
+  teamB: string;
+  sportType: string;
+  betType: string;
+  points?: number;
+}) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  // Start a transaction
+  const { data: bet, error: betError } = await supabase
+    .from('sports_bets')
+    .insert({
+      user_id: user.id,
+      match_id: matchId,
+      bet_amount: betAmount,
+      odds,
+      prediction,
+      team_a: teamA,
+      team_b: teamB,
+      sport_type: sportType,
+      bet_type: betType,
+      points
+    })
+    .select()
+    .single();
+
+  if (betError) throw betError;
+
+  // Deduct the bet amount from user's balance
+  const { error: transactionError } = await supabase
+    .from('transactions')
+    .insert({
+      user_id: user.id,
+      amount: -betAmount,
+      game_type: 'sports',
+      details: {
+        bet_id: bet.id,
+        match_id: matchId,
+        odds,
+        prediction
+      }
+    });
+
+  if (transactionError) throw transactionError;
+
+  return bet;
+}
+
+async function getProfile() {
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
 
-    // First try to get the profile
     let { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', user.id)
       .single();
 
-    // If profile doesn't exist, create it
     if (error?.code === 'PGRST116' || !data) {
       const { data: newProfile, error: insertError } = await supabase
         .from('profiles')
@@ -47,158 +214,10 @@ export async function getProfile() {
   }
 }
 
-export async function signInWithGoogle() {
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo: `${window.location.origin}/auth/callback`
-    }
-  });
-  
-  if (error) throw error;
-  return data;
-}
-
-export async function resetPassword(email: string) {
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/auth/callback?type=recovery`
-  });
-  
-  if (error) throw error;
-}
-
-export async function createLocalBackup() {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
-
-    const { data: transactions } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('user_id', user.id);
-
-    const { data: bets } = await supabase
-      .from('sports_bets')
-      .select('*')
-      .eq('user_id', user.id);
-
-    const backup = {
-      timestamp: new Date().toISOString(),
-      profile,
-      transactions,
-      bets
-    };
-
-    // Store backup in localStorage with a timestamp
-    localStorage.setItem(`backup_${Date.now()}`, JSON.stringify(backup));
-
-    // Keep only the last 5 backups
-    const keys = Object.keys(localStorage)
-      .filter(key => key.startsWith('backup_'))
-      .sort()
-      .reverse();
-
-    while (keys.length > 5) {
-      localStorage.removeItem(keys.pop()!);
-    }
-  } catch (error) {
-    console.error('Error creating local backup:', error);
-  }
-}
-
-export async function fetchLiveMatches() {
-  const response = await fetch(`https://api.the-odds-api.com/v4/sports/upcoming/odds/?apiKey=${sportsApiKey}&regions=us&markets=h2h,spreads,totals`);
-  const data = await response.json();
-  
-  return data.map((match: any) => ({
-    id: match.id,
-    teamA: match.home_team,
-    teamB: match.away_team,
-    sport: match.sport_key,
-    time: match.commence_time,
-    odds: {
-      teamA: match.bookmakers[0]?.markets.find((m: any) => m.key === 'h2h')?.outcomes.find((o: any) => o.name === match.home_team)?.price || 2.0,
-      teamB: match.bookmakers[0]?.markets.find((m: any) => m.key === 'h2h')?.outcomes.find((o: any) => o.name === match.away_team)?.price || 2.0
-    },
-    spreads: {
-      teamA: {
-        points: match.bookmakers[0]?.markets.find((m: any) => m.key === 'spreads')?.outcomes.find((o: any) => o.name === match.home_team)?.point || 0,
-        odds: match.bookmakers[0]?.markets.find((m: any) => m.key === 'spreads')?.outcomes.find((o: any) => o.name === match.home_team)?.price || 2.0
-      },
-      teamB: {
-        points: match.bookmakers[0]?.markets.find((m: any) => m.key === 'spreads')?.outcomes.find((o: any) => o.name === match.away_team)?.point || 0,
-        odds: match.bookmakers[0]?.markets.find((m: any) => m.key === 'spreads')?.outcomes.find((o: any) => o.name === match.away_team)?.price || 2.0
-      }
-    },
-    totals: {
-      over: {
-        points: match.bookmakers[0]?.markets.find((m: any) => m.key === 'totals')?.outcomes.find((o: any) => o.name === 'Over')?.point || 0,
-        odds: match.bookmakers[0]?.markets.find((m: any) => m.key === 'totals')?.outcomes.find((o: any) => o.name === 'Over')?.price || 2.0
-      },
-      under: {
-        points: match.bookmakers[0]?.markets.find((m: any) => m.key === 'totals')?.outcomes.find((o: any) => o.name === 'Under')?.point || 0,
-        odds: match.bookmakers[0]?.markets.find((m: any) => m.key === 'totals')?.outcomes.find((o: any) => o.name === 'Under')?.price || 2.0
-      }
-    }
-  }));
-}
-
-export async function placeSportsBet(bet: {
-  matchId: string;
-  betAmount: number;
-  odds: number;
-  prediction: string;
-  teamA: string;
-  teamB: string;
-  sportType: string;
-  betType: string;
-  points?: number;
-}) {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Not authenticated');
-
-  const { error } = await supabase
-    .from('sports_bets')
-    .insert({
-      user_id: user.id,
-      match_id: bet.matchId,
-      bet_amount: bet.betAmount,
-      odds: bet.odds,
-      prediction: bet.prediction,
-      team_a: bet.teamA,
-      team_b: bet.teamB,
-      sport_type: bet.sportType,
-      bet_type: bet.betType,
-      points: bet.points
-    });
-
-  if (error) throw error;
-
-  await createTransaction(-bet.betAmount, 'sports', {
-    matchId: bet.matchId,
-    type: 'bet_placed',
-    betType: bet.betType
-  });
-}
-
-export async function createTransaction(amount: number, gameType: string, details: any = {}) {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Not authenticated');
-
-  const { error } = await supabase
-    .from('transactions')
-    .insert({
-      user_id: user.id,
-      amount,
-      game_type: gameType,
-      details
-    });
-
-  if (error) throw error;
+export {
+  supabase,
+  signInWithPassword,
+  getProfile,
+  fetchLiveMatches,
+  placeSportsBet
 }

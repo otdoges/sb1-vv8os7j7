@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, signInWithPassword } from '../lib/supabase';
 import { Mail, Lock, AlertCircle } from 'lucide-react';
 
 export default function Auth() {
@@ -10,17 +10,45 @@ export default function Auth() {
   const [message, setMessage] = useState<string | null>(null);
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
 
+  const validateEmail = (email: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  const validatePassword = (password: string) => {
+    return password.length >= 6;
+  };
+
   const handleSignUp = async () => {
     setLoading(true);
     setError(null);
+    setMessage(null);
+
+    // Validate email format
+    if (!validateEmail(email)) {
+      setError('Please enter a valid email address');
+      setLoading(false);
+      return;
+    }
+
+    // Validate password
+    if (!validatePassword(password)) {
+      setError('Password must be at least 6 characters long');
+      setLoading(false);
+      return;
+    }
     
-    const { error } = await supabase.auth.signUp({
+    const { error: signUpError } = await supabase.auth.signUp({
       email,
       password
     });
 
-    if (error) {
-      setError(error.message);
+    if (signUpError) {
+      if (signUpError.message === 'User already registered') {
+        setError('An account with this email already exists. Please sign in instead.');
+      } else {
+        setError(signUpError.message);
+      }
     } else {
       // Sign in immediately after sign up
       await handleSignIn();
@@ -31,31 +59,63 @@ export default function Auth() {
   const handleSignIn = async () => {
     setLoading(true);
     setError(null);
-    
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    setMessage(null);
 
-    if (error) setError(error.message);
-    setLoading(false);
+    // Validate email format
+    if (!validateEmail(email)) {
+      setError('Please enter a valid email address');
+      setLoading(false);
+      return;
+    }
+
+    // Validate password
+    if (!validatePassword(password)) {
+      setError('Password must be at least 6 characters long');
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      await signInWithPassword(email, password);
+    } catch (error: any) {
+      if (error.message === 'Invalid login credentials') {
+        setError('Invalid email or password. Please try again.');
+      } else {
+        setError(error.message);
+      }
+      setLoading(false);
+    }
   };
 
   const handleForgotPassword = async () => {
     setLoading(true);
     setError(null);
+    setMessage(null);
+
+    // Validate email format
+    if (!validateEmail(email)) {
+      setError('Please enter a valid email address');
+      setLoading(false);
+      return;
+    }
     
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/auth/callback?type=recovery`
     });
     
-    if (error) {
-      setError(error.message);
+    if (resetError) {
+      setError(resetError.message);
     } else {
       setMessage('Password reset instructions have been sent to your email.');
     }
     
     setLoading(false);
+  };
+
+  const switchMode = (newMode: 'signin' | 'signup' | 'forgot') => {
+    setMode(newMode);
+    setError(null);
+    setMessage(null);
   };
 
   return (
@@ -97,7 +157,7 @@ export default function Auth() {
                   type="email"
                   required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => setEmail(e.target.value.trim())}
                   className="appearance-none rounded-t-md relative block w-full px-3 py-2 pl-10 border border-gray-700 placeholder-gray-500 text-white focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm bg-gray-700"
                   placeholder="Email address"
                 />
@@ -129,21 +189,25 @@ export default function Auth() {
                 <button
                   onClick={handleSignIn}
                   disabled={loading}
-                  className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                  className={`group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white ${
+                    loading
+                      ? 'bg-indigo-400 cursor-not-allowed'
+                      : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
+                  }`}
                 >
-                  Sign In
+                  {loading ? 'Signing in...' : 'Sign In'}
                 </button>
                 <div className="flex items-center justify-between">
                   <button
                     type="button"
-                    onClick={() => setMode('signup')}
+                    onClick={() => switchMode('signup')}
                     className="text-sm text-indigo-400 hover:text-indigo-300"
                   >
                     Create account
                   </button>
                   <button
                     type="button"
-                    onClick={() => setMode('forgot')}
+                    onClick={() => switchMode('forgot')}
                     className="text-sm text-indigo-400 hover:text-indigo-300"
                   >
                     Forgot password?
@@ -157,13 +221,17 @@ export default function Auth() {
                 <button
                   onClick={handleSignUp}
                   disabled={loading}
-                  className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                  className={`group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white ${
+                    loading
+                      ? 'bg-green-400 cursor-not-allowed'
+                      : 'bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500'
+                  }`}
                 >
-                  Sign Up
+                  {loading ? 'Creating account...' : 'Sign Up'}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMode('signin')}
+                  onClick={() => switchMode('signin')}
                   className="text-sm text-indigo-400 hover:text-indigo-300"
                 >
                   Already have an account? Sign in
@@ -176,13 +244,17 @@ export default function Auth() {
                 <button
                   onClick={handleForgotPassword}
                   disabled={loading}
-                  className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                  className={`group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white ${
+                    loading
+                      ? 'bg-indigo-400 cursor-not-allowed'
+                      : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
+                  }`}
                 >
-                  Reset Password
+                  {loading ? 'Sending reset link...' : 'Reset Password'}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMode('signin')}
+                  onClick={() => switchMode('signin')}
                   className="text-sm text-indigo-400 hover:text-indigo-300"
                 >
                   Back to sign in
