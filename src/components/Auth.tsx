@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { supabase, signInWithPassword } from '../lib/supabase';
-import { Mail, Lock, AlertCircle } from 'lucide-react';
+import { Mail, Lock, AlertCircle, CheckCircle } from 'lucide-react';
 
 export default function Auth() {
   const [email, setEmail] = useState('');
@@ -9,6 +9,7 @@ export default function Auth() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
+  const [verificationSent, setVerificationSent] = useState(false);
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -23,6 +24,7 @@ export default function Auth() {
     setLoading(true);
     setError(null);
     setMessage(null);
+    setVerificationSent(false);
 
     // Validate email format
     if (!validateEmail(email)) {
@@ -40,7 +42,10 @@ export default function Auth() {
     
     const { error: signUpError } = await supabase.auth.signUp({
       email,
-      password
+      password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback`
+      }
     });
 
     if (signUpError) {
@@ -50,8 +55,8 @@ export default function Auth() {
         setError(signUpError.message);
       }
     } else {
-      // Sign in immediately after sign up
-      await handleSignIn();
+      setVerificationSent(true);
+      setMessage('Please check your email for the verification link.');
     }
     setLoading(false);
   };
@@ -80,11 +85,35 @@ export default function Auth() {
     } catch (error: any) {
       if (error.message === 'Invalid login credentials') {
         setError('Invalid email or password. Please try again.');
+      } else if (error.message === 'Email not confirmed') {
+        setError('Please verify your email address before signing in.');
+        setVerificationSent(true);
       } else {
         setError(error.message);
       }
       setLoading(false);
     }
+  };
+
+  const handleResendVerification = async () => {
+    setLoading(true);
+    setError(null);
+    setMessage(null);
+
+    const { error: resendError } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback`
+      }
+    });
+
+    if (resendError) {
+      setError(resendError.message);
+    } else {
+      setMessage('Verification email has been resent. Please check your inbox.');
+    }
+    setLoading(false);
   };
 
   const handleForgotPassword = async () => {
@@ -116,6 +145,7 @@ export default function Auth() {
     setMode(newMode);
     setError(null);
     setMessage(null);
+    setVerificationSent(false);
   };
 
   return (
@@ -140,7 +170,8 @@ export default function Auth() {
         )}
 
         {message && (
-          <div className="bg-green-500/10 border border-green-500 text-green-500 p-3 rounded">
+          <div className="bg-green-500/10 border border-green-500 text-green-500 p-3 rounded flex items-center gap-2">
+            <CheckCircle className="w-4 h-4" />
             {message}
           </div>
         )}
@@ -218,24 +249,51 @@ export default function Auth() {
 
             {mode === 'signup' && (
               <>
-                <button
-                  onClick={handleSignUp}
-                  disabled={loading}
-                  className={`group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white ${
-                    loading
-                      ? 'bg-green-400 cursor-not-allowed'
-                      : 'bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500'
-                  }`}
-                >
-                  {loading ? 'Creating account...' : 'Sign Up'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => switchMode('signin')}
-                  className="text-sm text-indigo-400 hover:text-indigo-300"
-                >
-                  Already have an account? Sign in
-                </button>
+                {verificationSent ? (
+                  <div className="space-y-4">
+                    <div className="bg-blue-500/10 border border-blue-500 text-blue-500 p-4 rounded">
+                      <h3 className="font-semibold mb-2">Verify Your Email</h3>
+                      <p className="text-sm mb-4">
+                        We've sent a verification link to your email address. Please check your inbox and click the link to verify your account.
+                      </p>
+                      <button
+                        onClick={handleResendVerification}
+                        disabled={loading}
+                        className="text-sm text-blue-400 hover:text-blue-300"
+                      >
+                        {loading ? 'Sending...' : 'Resend verification email'}
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => switchMode('signin')}
+                      className="text-sm text-indigo-400 hover:text-indigo-300"
+                    >
+                      Back to sign in
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={handleSignUp}
+                      disabled={loading}
+                      className={`group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white ${
+                        loading
+                          ? 'bg-green-400 cursor-not-allowed'
+                          : 'bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500'
+                      }`}
+                    >
+                      {loading ? 'Creating account...' : 'Sign Up'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => switchMode('signin')}
+                      className="text-sm text-indigo-400 hover:text-indigo-300"
+                    >
+                      Already have an account? Sign in
+                    </button>
+                  </>
+                )}
               </>
             )}
 

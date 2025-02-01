@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Bomb, Gem } from 'lucide-react';
+import { getBalance, updateBalance } from '../lib/supabase';
 
 const GRID_SIZE = 25; // 5x5 grid
 const DEFAULT_MINES = 5;
 
 export default function Mines() {
-  const [balance, setBalance] = useState(1000);
+  const [balance, setBalance] = useState(0);
   const [betAmount, setBetAmount] = useState(10);
   const [gameActive, setGameActive] = useState(false);
   const [revealed, setRevealed] = useState<boolean[]>(Array(GRID_SIZE).fill(false));
@@ -13,24 +14,45 @@ export default function Mines() {
   const [currentMultiplier, setCurrentMultiplier] = useState(1);
   const [gameOver, setGameOver] = useState(false);
 
-  const startGame = () => {
+  useEffect(() => {
+    loadBalance();
+  }, []);
+
+  const loadBalance = async () => {
+    try {
+      const newBalance = await getBalance();
+      setBalance(newBalance);
+    } catch (error) {
+      console.error('Error loading balance:', error);
+    }
+  };
+
+  const startGame = async () => {
     if (balance < betAmount) return;
     
-    setBalance(prev => prev - betAmount);
-    setGameActive(true);
-    setGameOver(false);
-    setRevealed(Array(GRID_SIZE).fill(false));
-    setCurrentMultiplier(1);
-    
-    // Place mines randomly
-    const newMines: number[] = [];
-    while (newMines.length < DEFAULT_MINES) {
-      const mine = Math.floor(Math.random() * GRID_SIZE);
-      if (!newMines.includes(mine)) {
-        newMines.push(mine);
+    try {
+      const newBalance = await updateBalance(-betAmount, 'mines', {
+        action: 'bet',
+        amount: betAmount
+      });
+      setBalance(newBalance);
+      setGameActive(true);
+      setGameOver(false);
+      setRevealed(Array(GRID_SIZE).fill(false));
+      setCurrentMultiplier(1);
+      
+      // Place mines randomly
+      const newMines: number[] = [];
+      while (newMines.length < DEFAULT_MINES) {
+        const mine = Math.floor(Math.random() * GRID_SIZE);
+        if (!newMines.includes(mine)) {
+          newMines.push(mine);
+        }
       }
+      setMines(newMines);
+    } catch (error) {
+      console.error('Error starting game:', error);
     }
-    setMines(newMines);
   };
 
   const calculateMultiplier = (revealedCount: number) => {
@@ -57,14 +79,23 @@ export default function Mines() {
     }
   };
 
-  const cashOut = () => {
+  const cashOut = async () => {
     if (!gameActive) return;
     
-    const winAmount = betAmount * currentMultiplier;
-    setBalance(prev => prev + winAmount);
-    setGameActive(false);
-    setRevealed(Array(GRID_SIZE).fill(true));
-    setGameOver(true);
+    try {
+      const winAmount = betAmount * currentMultiplier;
+      const newBalance = await updateBalance(winAmount, 'mines', {
+        action: 'win',
+        amount: winAmount,
+        multiplier: currentMultiplier
+      });
+      setBalance(newBalance);
+      setGameActive(false);
+      setRevealed(Array(GRID_SIZE).fill(true));
+      setGameOver(true);
+    } catch (error) {
+      console.error('Error cashing out:', error);
+    }
   };
 
   return (
