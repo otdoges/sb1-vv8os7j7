@@ -1,5 +1,3 @@
-import { supabase } from './supabase';
-
 const ODDS_API_KEY = import.meta.env.VITE_ODDS_API_KEY;
 const ODDS_API_HOST = 'https://api.the-odds-api.com/v4/sports';
 
@@ -58,15 +56,6 @@ export async function fetchLiveOdds(sport = 'upcoming') {
         total_under_odds: totalsMarket?.outcomes.find(o => o.name === 'Under')?.price || 1
       };
     });
-    
-    // Update our live_matches table
-    const { error } = await supabase
-      .from('live_matches')
-      .upsert(matches, { onConflict: 'id' });
-      
-    if (error) {
-      throw error;
-    }
     
     return matches;
   } catch (error) {

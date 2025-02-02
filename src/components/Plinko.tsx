@@ -8,9 +8,13 @@ const MULTIPLIERS = [0.5, 1, 1.5, 2, 5, 2, 1.5, 1, 0.5];
 const BALL_SIZE = 16; // px
 const PEG_SIZE = 12; // px
 const VERTICAL_SPACING = 60; // px
-const HORIZONTAL_SPACING = 30; // px
-const BOUNCE_STRENGTH = 0.7;
+const HORIZONTAL_SPACING = 40; // px
+const BOUNCE_STRENGTH = 0.8;
 const GRAVITY = 0.5;
+const FRICTION = 0.99;
+const SLOT_WIDTH = 50; // px
+const BOARD_WIDTH = PEGS_PER_ROW * HORIZONTAL_SPACING;
+const BOARD_HEIGHT = ROWS * VERTICAL_SPACING + 180; // Added extra space for slots
 
 interface Position {
   x: number;
@@ -70,18 +74,28 @@ export default function Plinko() {
     const distance = Math.sqrt(dx * dx + dy * dy);
     
     if (distance < (BALL_SIZE + PEG_SIZE) / 2) {
-      // Collision detected
+      // Calculate collision angle
       const angle = Math.atan2(dy, dx);
-      const newVelX = Math.cos(angle) * ballVel.magnitude * BOUNCE_STRENGTH;
-      const newVelY = Math.sin(angle) * ballVel.magnitude * BOUNCE_STRENGTH;
       
+      // Calculate new velocity based on collision angle
+      const speed = Math.sqrt(ballVel.x * ballVel.x + ballVel.y * ballVel.y);
+      const newVelX = Math.cos(angle) * speed * BOUNCE_STRENGTH;
+      const newVelY = Math.sin(angle) * speed * BOUNCE_STRENGTH;
+      
+      // Add some randomness to make it more interesting
+      const randomFactor = 0.3;
       return {
-        x: newVelX,
-        y: newVelY
+        x: newVelX + (Math.random() - 0.5) * randomFactor,
+        y: newVelY + Math.abs(Math.random() * randomFactor) // Always add positive Y to ensure downward movement
       };
     }
     
     return null;
+  };
+
+  const getMultiplierIndex = (x: number, maxX: number) => {
+    const slotWidth = maxX / MULTIPLIERS.length;
+    return Math.min(Math.floor(x / slotWidth), MULTIPLIERS.length - 1);
   };
 
   const dropBall = async () => {
@@ -98,7 +112,7 @@ export default function Plinko() {
       setBalance(newBalance);
       
       let position: Position = {
-        x: PEGS_PER_ROW * HORIZONTAL_SPACING / 2,
+        x: BOARD_WIDTH / 2,
         y: 0
       };
       
@@ -107,14 +121,21 @@ export default function Plinko() {
         y: 0
       };
 
+      const maxX = BOARD_WIDTH;
+      const maxY = BOARD_HEIGHT - 60; // Leave space for slots
+
       const animate = async () => {
-        const duration = 3000; // 3 seconds
-        const steps = 60; // 60fps
+        const duration = 5000; // 5 seconds
+        const steps = 120; // 120fps for smoother animation
         const stepDuration = duration / steps;
         
         for (let i = 0; i < steps; i++) {
           // Apply gravity
           velocity.y += GRAVITY;
+          
+          // Apply friction
+          velocity.x *= FRICTION;
+          velocity.y *= FRICTION;
           
           // Update position
           position.x += velocity.x;
@@ -125,14 +146,22 @@ export default function Plinko() {
             const collision = calculateCollision(position, velocity, peg);
             if (collision) {
               velocity = collision;
-              // Add some randomness to make it more interesting
-              velocity.x += (Math.random() - 0.5) * 2;
             }
           }
           
           // Bounce off walls
-          if (position.x < 0 || position.x > PEGS_PER_ROW * HORIZONTAL_SPACING) {
+          if (position.x < 0) {
+            position.x = 0;
             velocity.x *= -BOUNCE_STRENGTH;
+          } else if (position.x > maxX) {
+            position.x = maxX;
+            velocity.x *= -BOUNCE_STRENGTH;
+          }
+          
+          // Stop when ball reaches bottom
+          if (position.y >= maxY) {
+            position.y = maxY;
+            break;
           }
           
           await controls.start({
@@ -145,8 +174,8 @@ export default function Plinko() {
         }
         
         // Calculate final multiplier based on x position
-        const multiplierIndex = Math.floor(position.x / (PEGS_PER_ROW * HORIZONTAL_SPACING / MULTIPLIERS.length));
-        const finalMultiplier = MULTIPLIERS[Math.max(0, Math.min(multiplierIndex, MULTIPLIERS.length - 1))];
+        const multiplierIndex = getMultiplierIndex(position.x, maxX);
+        const finalMultiplier = MULTIPLIERS[multiplierIndex];
         const winAmount = betAmount * finalMultiplier;
         
         const finalBalance = await updateBalance(winAmount, 'plinko', {
@@ -156,19 +185,23 @@ export default function Plinko() {
         });
         
         setBalance(finalBalance);
+        setIsDropping(false);
+        
+        // Reset ball position after a short delay
+        setTimeout(() => {
+          controls.set({ x: 0, y: 0 });
+        }, 1000);
       };
       
       animate();
     } catch (error) {
       console.error('Error updating balance:', error);
-    } finally {
       setIsDropping(false);
-      controls.set({ x: 0, y: 0 });
     }
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto p-4">
+    <div className="w-full max-w-4xl mx-auto p-4">
       <div className="bg-gray-800 rounded-lg p-6 mb-4">
         <div className="flex justify-between mb-4">
           <div className="text-white">
@@ -189,7 +222,13 @@ export default function Plinko() {
           </div>
         </div>
         
-        <div className="relative h-[600px] bg-gray-900 rounded-lg overflow-hidden">
+        <div 
+          className="relative bg-gray-900 rounded-lg overflow-hidden mx-auto"
+          style={{ 
+            width: `${BOARD_WIDTH}px`, 
+            height: `${BOARD_HEIGHT}px`
+          }}
+        >
           {/* Pegs */}
           {pegs.map((peg, index) => (
             <div
@@ -206,17 +245,23 @@ export default function Plinko() {
           {/* Ball */}
           {isDropping && (
             <motion.div
-              className="absolute w-4 h-4 bg-yellow-400 rounded-full"
+              className="absolute w-4 h-4 bg-yellow-400 rounded-full shadow-lg"
               style={{ top: 0, left: 0 }}
               animate={controls}
             />
           )}
           
-          {/* Multipliers */}
-          <div className="absolute bottom-0 w-full flex justify-around px-4 py-2 bg-gray-800">
+          {/* Multiplier slots */}
+          <div className="absolute bottom-0 w-full flex justify-around">
             {MULTIPLIERS.map((mult, index) => (
-              <div key={index} className="text-white font-bold">
-                {mult}x
+              <div
+                key={index}
+                className="relative"
+                style={{ width: SLOT_WIDTH }}
+              >
+                <div className="absolute bottom-0 w-full h-16 flex items-center justify-center border-l border-r border-t border-blue-500/30">
+                  <span className="text-white font-bold">{mult}x</span>
+                </div>
               </div>
             ))}
           </div>
