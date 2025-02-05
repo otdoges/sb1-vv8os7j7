@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Dices, Grid, Trophy, AlertCircle } from 'lucide-react';
+import { Dices, Grid, Trophy, AlertCircle, Settings as SettingsIcon } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import Plinko from './components/Plinko';
 import Mines from './components/Mines';
 import SportsBetting from './components/SportsBetting';
 import AdminPanel from './components/AdminPanel';
+import Settings from './components/Settings';
 import Auth from './components/Auth';
 
 type GameType = 'plinko' | 'mines' | 'sports';
@@ -15,11 +16,13 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [activeGame, setActiveGame] = useState<GameType>('plinko');
   const [isAdminRoute, setIsAdminRoute] = useState(false);
+  const [isSettingsRoute, setIsSettingsRoute] = useState(false);
 
   useEffect(() => {
-    // Check if we're on the admin route
+    // Check routes
     const path = window.location.pathname;
     setIsAdminRoute(path === '/admin' || path === '/panel');
+    setIsSettingsRoute(path === '/settings');
 
     const initializeApp = async () => {
       try {
@@ -80,6 +83,11 @@ function App() {
   // If we're on the admin route and authenticated, show admin panel
   if (isAdminRoute) {
     return <AdminPanel />;
+  }
+
+  // If we're on the settings route, show settings
+  if (isSettingsRoute) {
+    return <Settings />;
   }
 
   return (
@@ -149,12 +157,21 @@ function App() {
             </button>
           </div>
 
-          <button
-            onClick={() => supabase.auth.signOut()}
-            className="text-gray-300 hover:text-white"
-          >
-            Sign Out
-          </button>
+          <div className="flex gap-4">
+            <a
+              href="/settings"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700"
+            >
+              <SettingsIcon className="w-5 h-5" />
+              Settings
+            </a>
+            <button
+              onClick={() => supabase.auth.signOut()}
+              className="text-gray-300 hover:text-white"
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
 
         {activeGame === 'plinko' && <Plinko />}
@@ -165,4 +182,4 @@ function App() {
   );
 }
 
-export default App;
+export default App

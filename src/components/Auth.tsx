@@ -10,6 +10,7 @@ export default function Auth() {
   const [message, setMessage] = useState<string | null>(null);
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
   const [verificationSent, setVerificationSent] = useState(false);
+  const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -25,6 +26,12 @@ export default function Auth() {
     setError(null);
     setMessage(null);
     setVerificationSent(false);
+
+    if (!acceptedPrivacy) {
+      setError('You must accept the Privacy Policy to create an account');
+      setLoading(false);
+      return;
+    }
 
     // Validate email format
     if (!validateEmail(email)) {
@@ -44,7 +51,10 @@ export default function Auth() {
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        data: {
+          accepted_privacy: new Date().toISOString()
+        }
       }
     });
 
@@ -194,6 +204,39 @@ export default function Auth() {
           <div className="bg-green-500/10 border border-green-500 text-green-500 p-3 rounded flex items-center gap-2">
             <CheckCircle className="w-4 h-4" />
             {message}
+          </div>
+        )}
+
+        {mode === 'signup' && !verificationSent && (
+          <div className="mb-4 text-sm text-gray-400">
+            <div className="mb-4 p-4 bg-gray-700 rounded-lg">
+              <h3 className="font-semibold text-white mb-2">Privacy Policy Summary</h3>
+              <ul className="list-disc list-inside space-y-2">
+                <li>We collect your email for authentication and communication</li>
+                <li>Game data and transactions are stored securely</li>
+                <li>We use cookies for session management</li>
+                <li>We never share your personal data with third parties</li>
+                <li>You can request data deletion at any time</li>
+              </ul>
+              <a
+                href="/privacy"
+                target="_blank"
+                className="text-indigo-400 hover:text-indigo-300 mt-2 inline-block"
+              >
+                Read full Privacy Policy
+              </a>
+            </div>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={acceptedPrivacy}
+                onChange={(e) => setAcceptedPrivacy(e.target.checked)}
+                className="rounded bg-gray-700 border-gray-600 text-indigo-600 focus:ring-indigo-500"
+              />
+              <span>
+                I accept the Privacy Policy and understand how my data will be used
+              </span>
+            </label>
           </div>
         )}
 
