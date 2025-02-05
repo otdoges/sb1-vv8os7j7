@@ -63,11 +63,6 @@ The database schema and security policies are managed through Supabase migration
 4. Push to the branch
 5. Create a Pull Request
 
-## TODO 
-1. Make sure google adsense works
-2. add more games like blackjack
-
-
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.

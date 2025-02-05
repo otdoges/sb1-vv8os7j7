@@ -36,10 +36,12 @@ export default function Plinko() {
   const [betAmount, setBetAmount] = useState(10);
   const [isDropping, setIsDropping] = useState(false);
   const [pegs, setPegs] = useState<Peg[]>([]);
+  const [ballPath, setBallPath] = useState<Position[]>([]);
   const controls = useAnimation();
 
   useEffect(() => {
     loadBalance();
+    generatePegs();
   }, []);
 
   const loadBalance = async () => {
@@ -51,8 +53,7 @@ export default function Plinko() {
     }
   };
 
-  useEffect(() => {
-    // Generate peg positions
+  const generatePegs = () => {
     const newPegs: Peg[] = [];
     for (let row = 0; row < ROWS; row++) {
       const pegsInRow = PEGS_PER_ROW - row;
@@ -66,7 +67,7 @@ export default function Plinko() {
       }
     }
     setPegs(newPegs);
-  }, []);
+  };
 
   const calculateCollision = (ballPos: Position, ballVel: Velocity, peg: Peg) => {
     const dx = ballPos.x - peg.x;
@@ -74,28 +75,62 @@ export default function Plinko() {
     const distance = Math.sqrt(dx * dx + dy * dy);
     
     if (distance < (BALL_SIZE + PEG_SIZE) / 2) {
-      // Calculate collision angle
       const angle = Math.atan2(dy, dx);
-      
-      // Calculate new velocity based on collision angle
       const speed = Math.sqrt(ballVel.x * ballVel.x + ballVel.y * ballVel.y);
-      const newVelX = Math.cos(angle) * speed * BOUNCE_STRENGTH;
-      const newVelY = Math.sin(angle) * speed * BOUNCE_STRENGTH;
       
-      // Add some randomness to make it more interesting
-      const randomFactor = 0.3;
+      // Add randomness to make it more interesting
+      const randomAngle = angle + (Math.random() - 0.5) * 0.5;
+      
       return {
-        x: newVelX + (Math.random() - 0.5) * randomFactor,
-        y: newVelY + Math.abs(Math.random() * randomFactor) // Always add positive Y to ensure downward movement
+        x: Math.cos(randomAngle) * speed * BOUNCE_STRENGTH,
+        y: Math.abs(Math.sin(randomAngle) * speed * BOUNCE_STRENGTH) // Ensure downward movement
       };
     }
     
     return null;
   };
 
-  const getMultiplierIndex = (x: number, maxX: number) => {
-    const slotWidth = maxX / MULTIPLIERS.length;
-    return Math.min(Math.floor(x / slotWidth), MULTIPLIERS.length - 1);
+  const simulatePath = async (startX: number) => {
+    const path: Position[] = [];
+    let position: Position = { x: startX, y: 0 };
+    let velocity: Velocity = { x: 0, y: 0 };
+    
+    while (position.y < BOARD_HEIGHT - 60) {
+      // Apply gravity
+      velocity.y += GRAVITY;
+      
+      // Apply friction
+      velocity.x *= FRICTION;
+      velocity.y *= FRICTION;
+      
+      // Update position
+      position = {
+        x: position.x + velocity.x,
+        y: position.y + velocity.y
+      };
+      
+      // Check collisions with pegs
+      for (const peg of pegs) {
+        const collision = calculateCollision(position, velocity, peg);
+        if (collision) {
+          velocity = collision;
+          break;
+        }
+      }
+      
+      // Bounce off walls
+      if (position.x < 0) {
+        position.x = 0;
+        velocity.x *= -BOUNCE_STRENGTH;
+      } else if (position.x > BOARD_WIDTH) {
+        position.x = BOARD_WIDTH;
+        velocity.x *= -BOUNCE_STRENGTH;
+      }
+      
+      path.push({ ...position });
+    }
+    
+    return path;
   };
 
   const dropBall = async () => {
@@ -111,89 +146,47 @@ export default function Plinko() {
       });
       setBalance(newBalance);
       
-      let position: Position = {
-        x: BOARD_WIDTH / 2,
-        y: 0
-      };
+      // Simulate ball path
+      const path = await simulatePath(BOARD_WIDTH / 2);
+      setBallPath(path);
       
-      let velocity: Velocity = {
-        x: 0,
-        y: 0
-      };
-
-      const maxX = BOARD_WIDTH;
-      const maxY = BOARD_HEIGHT - 60; // Leave space for slots
-
-      const animate = async () => {
-        const duration = 5000; // 5 seconds
-        const steps = 120; // 120fps for smoother animation
-        const stepDuration = duration / steps;
-        
-        for (let i = 0; i < steps; i++) {
-          // Apply gravity
-          velocity.y += GRAVITY;
-          
-          // Apply friction
-          velocity.x *= FRICTION;
-          velocity.y *= FRICTION;
-          
-          // Update position
-          position.x += velocity.x;
-          position.y += velocity.y;
-          
-          // Check collisions with pegs
-          for (const peg of pegs) {
-            const collision = calculateCollision(position, velocity, peg);
-            if (collision) {
-              velocity = collision;
-            }
+      // Animate ball along path
+      for (let i = 0; i < path.length; i++) {
+        await controls.start({
+          x: path[i].x,
+          y: path[i].y,
+          transition: {
+            duration: 0.016, // 60fps
+            ease: 'linear'
           }
-          
-          // Bounce off walls
-          if (position.x < 0) {
-            position.x = 0;
-            velocity.x *= -BOUNCE_STRENGTH;
-          } else if (position.x > maxX) {
-            position.x = maxX;
-            velocity.x *= -BOUNCE_STRENGTH;
-          }
-          
-          // Stop when ball reaches bottom
-          if (position.y >= maxY) {
-            position.y = maxY;
-            break;
-          }
-          
-          await controls.start({
-            x: position.x,
-            y: position.y,
-            transition: { duration: stepDuration }
-          });
-          
-          await new Promise(resolve => setTimeout(resolve, stepDuration));
-        }
-        
-        // Calculate final multiplier based on x position
-        const multiplierIndex = getMultiplierIndex(position.x, maxX);
-        const finalMultiplier = MULTIPLIERS[multiplierIndex];
-        const winAmount = betAmount * finalMultiplier;
-        
-        const finalBalance = await updateBalance(winAmount, 'plinko', {
-          action: 'win',
-          amount: winAmount,
-          multiplier: finalMultiplier
         });
-        
-        setBalance(finalBalance);
-        setIsDropping(false);
-        
-        // Reset ball position after a short delay
-        setTimeout(() => {
-          controls.set({ x: 0, y: 0 });
-        }, 1000);
-      };
+      }
       
-      animate();
+      // Calculate multiplier based on final position
+      const finalX = path[path.length - 1].x;
+      const multiplierIndex = Math.min(
+        Math.floor((finalX / BOARD_WIDTH) * MULTIPLIERS.length),
+        MULTIPLIERS.length - 1
+      );
+      const multiplier = MULTIPLIERS[multiplierIndex];
+      const winAmount = betAmount * multiplier;
+      
+      // Update balance with winnings
+      const finalBalance = await updateBalance(winAmount, 'plinko', {
+        action: 'win',
+        amount: winAmount,
+        multiplier
+      });
+      
+      setBalance(finalBalance);
+      setIsDropping(false);
+      
+      // Reset ball position after a delay
+      setTimeout(() => {
+        controls.set({ x: BOARD_WIDTH / 2, y: 0 });
+        setBallPath([]);
+      }, 1000);
+      
     } catch (error) {
       console.error('Error updating balance:', error);
       setIsDropping(false);
@@ -246,10 +239,24 @@ export default function Plinko() {
           {isDropping && (
             <motion.div
               className="absolute w-4 h-4 bg-yellow-400 rounded-full shadow-lg"
-              style={{ top: 0, left: 0 }}
+              style={{ top: 0, left: BOARD_WIDTH / 2 }}
               animate={controls}
+              initial={{ x: 0, y: 0 }}
             />
           )}
+          
+          {/* Ball path visualization (optional) */}
+          {ballPath.map((pos, index) => (
+            <div
+              key={index}
+              className="absolute w-1 h-1 bg-yellow-400/20 rounded-full"
+              style={{
+                left: pos.x,
+                top: pos.y,
+                transform: 'translate(-50%, -50%)'
+              }}
+            />
+          ))}
           
           {/* Multiplier slots */}
           <div className="absolute bottom-0 w-full flex justify-around">

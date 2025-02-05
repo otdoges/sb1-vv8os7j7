@@ -4,6 +4,7 @@ import { supabase } from './lib/supabase';
 import Plinko from './components/Plinko';
 import Mines from './components/Mines';
 import SportsBetting from './components/SportsBetting';
+import AdminPanel from './components/AdminPanel';
 import Auth from './components/Auth';
 
 type GameType = 'plinko' | 'mines' | 'sports';
@@ -11,16 +12,35 @@ type GameType = 'plinko' | 'mines' | 'sports';
 function App() {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeGame, setActiveGame] = useState<GameType>('plinko');
+  const [isAdminRoute, setIsAdminRoute] = useState(false);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setLoading(false);
-    });
+    // Check if we're on the admin route
+    const path = window.location.pathname;
+    setIsAdminRoute(path === '/admin' || path === '/panel');
 
-    // Listen for auth changes
+    const initializeApp = async () => {
+      try {
+        if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+          throw new Error('Missing Supabase configuration. Please check your environment variables.');
+        }
+
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        
+        setSession(session);
+      } catch (error) {
+        console.error('Initialization error:', error);
+        setError(error instanceof Error ? error.message : 'Failed to initialize application');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initializeApp();
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setLoading(false);
@@ -39,14 +59,32 @@ function App() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="bg-red-500/10 border border-red-500 text-red-500 p-6 rounded-lg max-w-md mx-auto">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertCircle className="w-5 h-5" />
+            <h2 className="text-lg font-semibold">Error</h2>
+          </div>
+          <p>{error}</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!session) {
     return <Auth />;
   }
 
+  // If we're on the admin route and authenticated, show admin panel
+  if (isAdminRoute) {
+    return <AdminPanel />;
+  }
+
   return (
     <div className="min-h-screen bg-gray-900">
-      {/* Verification Banner */}
-      {!session.user.email_confirmed_at && (
+      {session.user && !session.user.email_confirmed_at && (
         <div className="bg-yellow-500/10 border-b border-yellow-500 p-3">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between flex-wrap gap-2">

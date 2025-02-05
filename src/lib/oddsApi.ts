@@ -1,5 +1,5 @@
 const ODDS_API_KEY = import.meta.env.VITE_ODDS_API_KEY;
-const ODDS_API_HOST = 'https://api.the-odds-api.com/v4/sports';
+const ODDS_API_HOST = import.meta.env.VITE_ODDS_API_HOST;
 
 interface OddsResponse {
   id: string;
@@ -23,15 +23,23 @@ interface OddsResponse {
 
 export async function fetchLiveOdds(sport = 'upcoming') {
   try {
-    const response = await fetch(
-      `${ODDS_API_HOST}/${sport}/odds/?apiKey=${ODDS_API_KEY}&regions=us&markets=h2h,spreads,totals`
-    );
+    // Debug log to check environment variables
+    console.log('API Key exists:', !!ODDS_API_KEY);
+    console.log('API Host exists:', !!ODDS_API_HOST);
+    
+    const url = `${ODDS_API_HOST}/${sport}/odds/?apiKey=${ODDS_API_KEY}&regions=us&markets=h2h,spreads,totals`;
+    console.log('Fetching odds from:', url);
+    
+    const response = await fetch(url);
     
     if (!response.ok) {
-      throw new Error('Failed to fetch odds');
+      const errorText = await response.text();
+      console.error('API Error:', errorText);
+      throw new Error(`Failed to fetch odds: ${response.status} ${response.statusText}`);
     }
     
     const data: OddsResponse[] = await response.json();
+    console.log('Received odds data:', data.length, 'matches');
     
     // Transform the data for our database
     const matches = data.map(match => {
