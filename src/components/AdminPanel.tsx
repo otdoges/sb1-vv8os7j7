@@ -23,7 +23,7 @@ export default function AdminPanel() {
 
   const checkAdminAccess = async () => {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user || user.email !== 'dogesman098@gmail.com') {
+    if (!user || user.email !== 'replacewithOWNemailthatsinYOUROWNSupabaseBACKEND') {
       setError('Unauthorized access');
       setLoading(false);
       return false;
